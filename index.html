@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flying Wing RCS Explorer</title>
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: an instrument bench. A big plain question on top, then the controls rail and the two scopes side by side, numbers as one strip underneath. Surfaces are separated by tone, never by lines. */
+:root{
+  --bg:#e7ebee; --panel:#f8fafb; --well:#dde3e8; --line:#d6dde3; --ink:#13202b; --muted:#4f5f6d;
+  --accent:#c2410c; --on-accent:#ffffff; --ref:#6b7884; --scope:#ffffff; --warn:#b42318; --good:#22703a;
+  --display:"IBM Plex Sans Condensed","Arial Narrow",sans-serif;
+  --body:"IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Sans",system-ui,sans-serif; /* canvas labels use the text face with tabular figures */
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b1116; --panel:#121a21; --well:#1b252e; --line:#24303a; --ink:#e4eaef; --muted:#9aa8b5;
+    --accent:#fb7a3c; --on-accent:#140b05; --ref:#8d99a5; --scope:#0e151b; --warn:#ff6b5b; --good:#5cc27a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b1116; --panel:#121a21; --well:#1b252e; --line:#24303a; --ink:#e4eaef; --muted:#9aa8b5;
+  --accent:#fb7a3c; --on-accent:#140b05; --ref:#8d99a5; --scope:#0e151b; --warn:#ff6b5b; --good:#5cc27a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55;font-variant-numeric:tabular-nums}
+a{color:inherit}
+.bar{max-width:1400px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;gap:28px}
+.bar .mark{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:-0.01em;margin-right:auto;text-decoration:none}
+.bar a.link{font-size:15px;text-decoration:none;color:var(--muted)}
+.bar a.link:hover{color:var(--ink)}
+.intro{max-width:1400px;margin:0 auto;padding:40px 28px 72px;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:48px;align-items:end}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(46px,6.6vw,104px);line-height:0.95;letter-spacing:-0.035em;margin:0;text-wrap:balance}
+.lede{font-size:19px;line-height:1.5;max-width:46ch;margin:0 0 22px}
+.actions{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.primary{font:inherit;font-weight:600;font-size:16px;background:var(--accent);color:var(--on-accent);border:0;border-radius:0;padding:14px 22px;cursor:pointer;transition:transform .15s ease,opacity .15s ease}
+.primary:hover{opacity:.9}
+.primary:active{transform:translateY(1px) scale(.98)}
+.textlink{font-size:16px;color:var(--ink);text-underline-offset:4px}
+main{max-width:1400px;margin:0 auto;padding:8px 28px 96px;display:grid;grid-template-columns:310px 1fr;gap:20px}
+.card{background:var(--panel);border-radius:0;padding:20px}
+h2{font-family:var(--display);font-weight:600;font-size:24px;line-height:1.1;letter-spacing:-0.01em;margin:0 0 14px;text-wrap:balance}
+h3{font-size:15px;font-weight:600;color:var(--ink);margin:22px 0 8px}
+h3:first-child{margin-top:0}
+.controls{display:flex;flex-direction:column;align-self:start;position:sticky;top:12px}
+.presets{display:grid;grid-template-columns:1fr;gap:4px}
+button{font:inherit;font-size:14px;border:0;background:var(--well);color:var(--ink);border-radius:0;padding:8px 11px;cursor:pointer;text-align:left;transition:background-color .15s ease,color .15s ease,transform .1s ease}
+button:hover{background:color-mix(in srgb,var(--well) 70%,var(--ink) 12%)}
+button:active{transform:scale(.98)}
+button.on{background:var(--accent);color:var(--on-accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 8px;margin-bottom:12px}
+.row label{font-size:14px}
+.row output{font-size:14px;color:var(--muted)}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.seg{display:flex;gap:4px;grid-column:1/-1}
+.seg button{flex:1;text-align:center;padding:7px 6px}
+.btnrow{display:flex;gap:4px}
+.btnrow button{flex:1;text-align:center}
+.views{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-width:0}
+.right{display:flex;flex-direction:column;gap:20px;min-width:0}
+canvas{display:block;width:100%;touch-action:none}
+#plan{aspect-ratio:1/1;background:var(--scope);cursor:grab}
+#polar{aspect-ratio:1/1;background:var(--scope);cursor:crosshair}
+.cap{font-size:14px;color:var(--muted);margin:10px 0 0;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;max-width:none}
+.readout{color:var(--ink)}
+.chip{font-size:14px;font-weight:600;color:var(--muted)}
+.chip.warn{color:var(--warn)}
+.chip.mode{color:var(--accent);margin-left:6px}
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:0;background:var(--panel)}
+.tile{padding:18px 20px}
+.tile+.tile{background:color-mix(in srgb,var(--panel) 94%,var(--ink) 6%)}
+.tile:nth-child(odd){background:var(--panel)}
+.tile .k{font-size:14px;color:var(--muted);margin-top:6px}
+.tile .k b{color:var(--ink);font-weight:600}
+.tile .v{font-family:var(--display);font-size:36px;font-weight:600;line-height:1.05;letter-spacing:-0.02em;margin-top:4px}
+.tile .v small{font-size:16px;font-weight:400;color:var(--muted);margin-left:4px;letter-spacing:0}
+.tile .d{font-size:14px;margin-top:2px;min-height:20px}
+.d.better{color:var(--good)} .d.worse{color:var(--warn)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th{text-align:left;font-weight:600;font-size:14px;color:var(--muted);padding:6px 8px;border-bottom:2px solid var(--well)}
+td{padding:7px 8px;border-bottom:1px solid var(--well)}
+td.num{white-space:nowrap}
+.sw{display:inline-block;width:12px;height:12px;vertical-align:-1px;margin-right:6px}
+.notes p,.notes ul{max-width:68ch;font-size:16px}
+.notes p{margin:0 0 10px}
+.notes ul{margin:0;padding-left:20px}
+.notes li{margin-bottom:8px}
+.meta{font-size:14px;color:var(--muted);margin-top:12px}
+.drop{background:var(--well);padding:18px 14px;text-align:center;font-size:14px;color:var(--ink);cursor:pointer;display:block;transition:background-color .15s ease}
+.drop:hover,.drop.over{background:color-mix(in srgb,var(--well) 75%,var(--accent) 25%)}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.status{font-size:14px;margin-top:8px;color:var(--muted);min-height:20px}
+.bar2{height:4px;background:var(--well);overflow:hidden;margin-top:6px}
+.bar2 i{display:block;height:100%;width:0;background:var(--accent)}
+select{font:inherit;font-size:14px;background:var(--well);color:var(--ink);border:0;border-radius:0;padding:6px 8px}
+.selrow{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;margin-bottom:8px;font-size:14px}
+#plancard.wide{grid-column:1/-1}
+#v3dwrap{position:relative}
+#v3d{width:100%;aspect-ratio:16/9;background:var(--scope);overflow:hidden;touch-action:none;cursor:grab}
+#v3d canvas{width:100%!important;height:100%!important;display:block}
+.viewbtns{position:absolute;top:10px;right:10px;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.viewbtns button{font-size:13px;padding:5px 9px;text-align:center}
+.sharebar{display:inline-block;width:60px;height:6px;background:var(--well);margin-right:8px;vertical-align:1px;overflow:hidden}
+.sharebar i{display:block;height:100%;background:var(--accent)}
+#hotcard td:first-child{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+footer{max-width:1400px;margin:0 auto;padding:0 28px 48px}
+footer .name{font-family:var(--display);font-weight:600;font-size:clamp(40px,7vw,112px);line-height:.95;letter-spacing:-0.035em;margin:0 0 18px}
+footer p{color:var(--muted);font-size:15px;max-width:72ch;margin:0 0 6px}
+/* entrance: content is visible without it; animation only adds travel */
+@keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+.enter{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
+@media (prefers-reduced-motion: reduce){.enter{animation:none}*{transition:none!important}}
+@media (max-width:1100px){.views{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(3,1fr)}.intro{grid-template-columns:1fr;gap:20px;padding-bottom:48px}}
+@media (max-width:820px){main{grid-template-columns:1fr}.controls{position:static}.tiles{grid-template-columns:repeat(2,1fr)}.bar,.intro,main,footer{padding-left:16px;padding-right:16px}.bar a.link{display:none}td{white-space:normal}td.num{white-space:normal}#spikes td:nth-child(2),#spikes td:nth-child(3),#spkhead th:nth-child(2),#spkhead th:nth-child(3){display:none}table{font-size:14px}}
+</style>
+</head>
+<body>
+<nav class="bar" aria-label="Site">
+  <a class="mark" href="#explorer">Flying Wing RCS Explorer</a>
+  <a class="link" href="#explorer">Explorer</a>
+  <a class="link" href="#h-notes">Method</a>
+  <a class="link" id="ghlink" href="https://github.com/" hidden>Source on GitHub</a>
+</nav>
+
+<main id="explorer">
+  <aside class="enter controls card" aria-label="Controls" style="animation-delay:0.19s">
+    <h3>Source</h3>
+    <div class="seg" style="margin-bottom:4px"><button type="button" id="m-param">Parametric planform</button><button type="button" id="m-step">STEP model</button></div>
+    <div id="paramUI">
+      <h3>Presets</h3>
+      <div class="presets" id="presets"></div>
+      <h3>Geometry <span class="chip mode" id="modechip" hidden>Custom shape</span></h3>
+      <div id="geo"></div>
+    </div>
+    <div id="stepUI" hidden>
+      <h3>STEP file</h3>
+      <label class="drop" id="drop" for="file">Drop a .step / .stp file here or click to choose<input type="file" id="file" accept=".step,.stp,.STEP,.STP"></label>
+      <div class="status" id="status">Geometry stays in your browser. Nothing is uploaded.</div>
+      <div class="bar2"><i id="prog"></i></div>
+      <h3>Orientation</h3>
+      <div class="selrow"><label for="fwd">Nose points along</label><select id="fwd"></select></div>
+      <div class="selrow"><label for="up">Up is</label><select id="up"></select></div>
+      <h3>Solver</h3>
+      <div class="selrow"><label for="qual">Tessellation</label><select id="qual"><option value="coarse">Coarse</option><option value="medium" selected>Medium</option><option value="fine">Fine</option></select></div>
+      <div class="selrow"><label for="res">Azimuth step</label><select id="res"><option value="7200">0.05°</option><option value="3600" selected>0.1°</option><option value="1440">0.25°</option><option value="720">0.5°</option></select></div>
+      <div class="selrow"><label for="two">Faces</label><select id="two"><option value="0" selected>Closed solid (cull back faces)</option><option value="1">Thin sheets (two-sided)</option></select></div>
+    </div>
+    <h3>Radar</h3>
+    <div id="radar"></div>
+    <h3>Comparison</h3>
+    <div class="btnrow">
+      <button id="freeze" type="button">Freeze as reference</button>
+      <button id="clearref" type="button">Clear</button>
+    </div>
+    <div class="meta" id="meta"></div>
+  </aside>
+
+  <div class="right">
+    <div class="views">
+      <section class="enter card" id="plancard" aria-labelledby="h-plan" style="animation-delay:0.26s">
+        <h2 id="h-plan">Planform (top view, nose up)</h2>
+        <canvas data-ui id="plan" aria-label="Planform drawing with draggable vertices"></canvas>
+        <div id="v3dwrap" hidden><div data-ui id="v3d" aria-label="3D model coloured by backscatter contribution"></div><div class="viewbtns"><button type="button" data-view="top">Top</button><button type="button" data-view="below">Below</button><button type="button" data-view="nose">Nose</button><button type="button" data-view="side">Side</button><button type="button" data-view="tail">Tail</button><button type="button" id="resetview">Reset</button></div></div>
+        <p class="cap"><span id="plancap">Drag the round handles to reshape. The left half mirrors. Edges with the same colour are parallel and spike at the same azimuth.</span><span id="warnchip"></span></p>
+      </section>
+      <section class="enter card" aria-labelledby="h-polar" style="animation-delay:0.33s">
+        <h2 id="h-polar">RCS vs azimuth (dBsm)</h2>
+        <canvas data-ui id="polar" aria-label="Polar plot of RCS against azimuth"></canvas>
+        <p class="cap"><span>0° is nose-on, 90° is the right beam. Shaded wedge is the ±30° nose sector.</span><span class="readout" id="readout">Hover the plot</span></p>
+      </section>
+      <section class="enter card" id="hotcard" aria-labelledby="h-hot" hidden style="animation-delay:0.40s">
+        <h2 id="h-hot">Where the return comes from</h2>
+        <div class="selrow"><label for="hsmode">Colour by</label><select id="hsmode"><option value="0">Nose ±30° average</option><option value="1">Beam average</option><option value="2">Tail ±30° average</option><option value="3">All-aspect average</option><option value="angle">Angle under cursor</option></select></div>
+        <div class="row" style="margin-bottom:8px"><label for="hsaz">Radar azimuth</label><output id="hsazout">0.0°</output><input type="range" id="hsaz" min="0" max="360" step="0.5" value="0"></div>
+        <div class="selrow"><label for="hsrange">Colour range</label><select id="hsrange"><option value="20">20 dB</option><option value="30" selected>30 dB</option><option value="40">40 dB</option></select></div>
+        <canvas data-ui id="cbar" style="height:30px" aria-label="Colour scale"></canvas>
+        <p class="cap" id="hslabel"></p>
+        <h3>Parts ranked by their own RCS</h3>
+        <div class="tablewrap"><table><thead><tr><th>Part</th><th>dBsm</th><th>Share</th></tr></thead><tbody id="parts"></tbody></table></div>
+        <p class="cap">Each part's facets are summed coherently, so a part's dBsm is what it would return on its own. Shares ignore interference between parts.</p>
+      </section>
+    </div>
+
+    <section class="enter tiles" id="tiles" aria-label="Sector averages" style="animation-delay:0.47s"></section>
+
+    <section class="enter card" aria-labelledby="h-spk" style="animation-delay:0.54s">
+      <h2 id="h-spk">Edge spikes</h2>
+      <div class="tablewrap"><table>
+        <thead id="spkhead"><tr><th>Edge group</th><th>Edges</th><th>Total length</th><th>Spike azimuths</th><th>Spike level</th><th>Inside nose ±30°?</th></tr></thead>
+        <tbody id="spikes"></tbody>
+      </table></div>
+    </section>
+
+    <section class="card notes" aria-labelledby="h-notes">
+      <h2 id="h-notes">What this model is and isn't</h2>
+      <p>Everything is treated as perfect conductor. In parametric mode the wing is a zero-thickness plate. For each look angle the physical-optics surface integral is evaluated in closed form as a sum over polygon edges (Gordon's method), so spike widths of about λ/(2L) are resolved without meshing. Radar sits at the chosen elevation above the plate plane; RCS scales with sin² of that angle in this model.</p>
+      <ul>
+        <li><b>Good for:</b> comparing planform layouts at the same frequency and elevation, and checking where edge-normal spikes fall. Relative changes are meaningful.</li>
+        <li><b>Misses:</b> edge diffraction and travelling-wave returns, which dominate near grazing where PO goes to zero, so absolute dBsm at low elevation is optimistic. No thickness, inlets, exhausts, cavities, gaps, antennas or RAM. Those usually set the real number.</li>
+        <li><b>STEP mode:</b> the CAD model is tessellated in your browser and every lit facet is integrated exactly and summed coherently. Back faces are culled, but there is no shadowing between parts and no multiple bounces, so inlets, cavities and dihedral corners are underestimated. Curved surfaces become flat facets, which adds small false glints; use Fine tessellation to check a result holds.</li>
+        <li><b>Hot-spot colours:</b> each facet is coloured by its backscattered power per unit area, relative to the hottest facets. That shows specular flashes from flat and curved surfaces well. It does not show edge diffraction or corner (multiple-bounce) returns, because physical optics has neither.</li>
+        <li><b>Symmetry:</b> a flat plate in PO returns the same from φ and φ+180°, so nose and tail sectors always match in parametric mode. STEP mode breaks this with real thickness and camber. Real nose/tail differences come from thickness, inlets and exhausts.</li>
+        <li><b>Validity:</b> needs the shape to be many wavelengths across. Below about 5λ span (low L-band on a small UAV) treat the output as qualitative only.</li>
+      </ul>
+    </section>
+  </div>
+</main>
+<footer>
+  <p class="name">Flying Wing RCS Explorer</p>
+  <p>Physical optics after W. B. Gordon (1975) for polygon and facet integrals, checked against the POFACETS formulation (D. C. Jenn, Naval Postgraduate School). STEP files are read with occt-import-js (OpenCascade) and drawn with three.js. Everything runs in your browser; no geometry is uploaded.</p>
+  <p>Built by Shay Colaco.</p>
+</footer>
+
+<script>
+/* ---------- physics core: 2D plate (verified against analytic rectangle and brute-force triangle) ---------- */
+function polyArea(P){let a=0;for(let i=0;i<P.length;i++){const p=P[i],q=P[(i+1)%P.length];a+=p[0]*q[1]-q[0]*p[1];}return a/2;}
+function polyFT(P,px,py,scale){
+  const p2=px*px+py*py;
+  if(p2*scale*scale<1e-10) return [polyArea(P),0];
+  let tr=0,ti=0;
+  for(let i=0;i<P.length;i++){
+    const a=P[i],b=P[(i+1)%P.length];
+    const ax=b[0]-a[0],ay=b[1]-a[1];
+    if(ax===0&&ay===0) continue;
+    const cx=(a[0]+b[0])/2,cy=(a[1]+b[1])/2;
+    const s=px*ay-py*ax,u=(px*ax+py*ay)/2;
+    const sc=Math.abs(u)<1e-9?1:Math.sin(u)/u;
+    const arg=px*cx+py*cy,m=s*sc;
+    tr+=m*Math.cos(arg);ti+=m*Math.sin(arg);
+  }
+  return [ti/p2,-tr/p2];
+}
+function rcs(P,lambda,el,phi,scale){
+  const k=2*Math.PI/lambda,c=2*k*Math.cos(el);
+  const F=polyFT(P,c*Math.cos(phi),c*Math.sin(phi),scale);
+  const s=Math.sin(el);
+  return 4*Math.PI/(lambda*lambda)*s*s*(F[0]*F[0]+F[1]*F[1]);
+}
+/* ---------- physics core: 3D facets (phase-verified against brute force) ---------- */
+// T per triangle, 13 values: nx,ny,nz, x0,y0,z0, x1,y1,z1, x2,y2,z2, area
+function triFT(T,o,qx,qy,qz,out){
+  const nx=T[o],ny=T[o+1],nz=T[o+2];
+  const qn=qx*nx+qy*ny+qz*nz,qq=qx*qx+qy*qy+qz*qz,p2=qq-qn*qn,A=T[o+12];
+  if(p2<1e-10*qq+1e-14){
+    const cx=(T[o+3]+T[o+6]+T[o+9])/3,cy=(T[o+4]+T[o+7]+T[o+10])/3,cz=(T[o+5]+T[o+8]+T[o+11])/3;
+    const ar=qx*cx+qy*cy+qz*cz;out[0]=A*Math.cos(ar);out[1]=A*Math.sin(ar);return;
+  }
+  let tr=0,ti=0;
+  for(let e=0;e<3;e++){
+    const a=o+3+3*e,b=o+3+3*((e+1)%3);
+    const ax=T[b]-T[a],ay=T[b+1]-T[a+1],az=T[b+2]-T[a+2];
+    const s=nx*(qy*az-qz*ay)+ny*(qz*ax-qx*az)+nz*(qx*ay-qy*ax);
+    const u=(qx*ax+qy*ay+qz*az)/2;
+    const sc=Math.abs(u)<1e-9?1:Math.sin(u)/u;
+    const arg=(qx*(T[a]+T[b])+qy*(T[a+1]+T[b+1])+qz*(T[a+2]+T[b+2]))/2;
+    const m=s*sc;tr+=m*Math.cos(arg);ti+=m*Math.sin(arg);
+  }
+  out[0]=ti/p2;out[1]=-tr/p2;
+}
+function sweep3D(d,post){
+  // Returns backscatter per angle plus hot-spot accumulators.
+  // acc[s*nt+t]: facet backscattered power per unit area |c_t|^2/A_t summed over sector s (0 nose ±30, 1 beam, 2 tail, 3 all)
+  // pacc[s*np+p]: |coherent sum over part p|^2 summed over sector s
+  const {T,nt,lam,el,F,U,Rt,i0,i1,N,two,part,np}=d;
+  const k=2*Math.PI/lam,ce=Math.cos(el),se=Math.sin(el),out=new Float64Array(i1-i0),tmp=[0,0];
+  const acc=new Float64Array(4*nt),pacc=new Float64Array(4*np),cnt=new Float64Array(4),pre=new Float64Array(np),pim=new Float64Array(np);
+  for(let i=i0;i<i1;i++){
+    const az=i*360/N,ph=i*2*Math.PI/N,c=Math.cos(ph),s=Math.sin(ph);
+    const sec=(az<=30||az>=330)?0:((az>=60&&az<=120)||(az>=240&&az<=300))?1:(az>=150&&az<=210)?2:-1;
+    const kx=ce*(c*F[0]+s*Rt[0])+se*U[0],ky=ce*(c*F[1]+s*Rt[1])+se*U[1],kz=ce*(c*F[2]+s*Rt[2])+se*U[2];
+    const qx=2*k*kx,qy=2*k*ky,qz=2*k*kz;let re=0,im=0;
+    for(let t=0;t<nt;t++){
+      const o=t*13;let nk=T[o]*kx+T[o+1]*ky+T[o+2]*kz;
+      if(nk<=0){if(!two)continue;nk=-nk;if(nk===0)continue;}
+      triFT(T,o,qx,qy,qz,tmp);
+      const cr=nk*tmp[0],ci=nk*tmp[1];re+=cr;im+=ci;
+      const e=(cr*cr+ci*ci)/T[o+12];
+      acc[3*nt+t]+=e;if(sec>=0)acc[sec*nt+t]+=e;
+      const p=part[t];pre[p]+=cr;pim[p]+=ci;
+    }
+    for(let p=0;p<np;p++){const e=pre[p]*pre[p]+pim[p]*pim[p];pacc[3*np+p]+=e;if(sec>=0)pacc[sec*np+p]+=e;pre[p]=0;pim[p]=0;}
+    cnt[3]++;if(sec>=0)cnt[sec]++;
+    out[i-i0]=4*Math.PI/(lam*lam)*(re*re+im*im);
+    if(post&&(i-i0)%20===19) post({p:20});
+  }
+  return {out,acc,pacc,cnt};
+}
+const WORKER_SRC=triFT.toString()+'\n'+sweep3D.toString()+
+ '\nonmessage=e=>{const r=sweep3D(e.data,m=>postMessage(m));postMessage({done:true,i0:e.data.i0,out:r.out,acc:r.acc,pacc:r.pacc,cnt:r.cnt},[r.out.buffer,r.acc.buffer,r.pacc.buffer]);};';
+
+/* ---------- state ---------- */
+const D2R=Math.PI/180;
+const S={mode:'param',b:4,sweep:33,ct:0.6,te:'saw',teSweep:10,teeth:4,tip:'aligned',f:10,el:5,el3:-5,custom:null,ref:null,hover:null,
+  fwd:'+X',up:'+Z',qual:'medium',N3:3600,two:false};
+const PRESETS=[
+  {id:'saw',name:'Sawtooth trailing edge, aligned',set:{b:4,sweep:33,ct:0.6,te:'saw',teeth:4,tip:'aligned'}},
+  {id:'diamond',name:'Aligned diamond (UCAV style)',set:{b:3,sweep:50,ct:0.35,te:'straight',teSweep:-50,tip:'aligned'}},
+  {id:'conv',name:'Swept wing, unaligned edges',set:{b:3,sweep:35,ct:0.5,te:'straight',teSweep:8,tip:'stream'}},
+  {id:'lambda',name:'Lambda wing, mixed alignment',set:{b:3.5,sweep:45,ct:0.4,te:'saw',teeth:2,tip:'stream'}},
+];
+let activePreset='saw';
+
+function genHalf(){
+  const t=Math.tan(S.sweep*D2R),b=S.b;
+  const tipLE=[-b*t,b];
+  let tipTE;
+  if(S.tip==='stream') tipTE=[tipLE[0]-S.ct,b];
+  else{let yt=b-S.ct/t; if(yt<0.25*b) yt=0.25*b; tipTE=[tipLE[0]-(b-yt)*t,yt];}
+  const pts=[[0,0],tipLE];
+  if(S.tip==='stream'||Math.hypot(tipTE[0]-tipLE[0],tipTE[1]-tipLE[1])>1e-6) pts.push(tipTE);
+  const xt=tipTE[0],yt=tipTE[1];
+  if(S.te==='straight'){
+    let xr=xt+yt*Math.tan(S.teSweep*D2R);
+    xr=Math.min(xr,-0.05*b);
+    pts.push([xr,0]);
+  }else{
+    const n=S.teeth,dy=yt/n;let x=xt;
+    for(let i=1;i<=n;i++){x+=(i%2===1?1:-1)*t*dy;pts.push([x,i===n?0:yt-i*dy]);}
+    if(pts[pts.length-1][0]>-0.05*b) pts[pts.length-1][0]=-0.05*b;
+  }
+  return pts;
+}
+function half(){return S.custom||genHalf();}
+function full(H){const L=H.slice(1,-1).reverse().map(p=>[p[0],-p[1]]);return H.concat(L);}
+
+/* ---------- planform analysis ---------- */
+const GROUPC=['#1c6dd0','#2b8a3e','#9c36b5','#0b8a8a','#c2255c','#5f3dc4','#8a6d00','#a0522d'];
+function edges(P){
+  const E=[];
+  for(let i=0;i<P.length;i++){
+    const a=P[i],b=P[(i+1)%P.length],dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy);
+    if(L<1e-9) continue;
+    let ang=Math.atan2(dy,dx)/D2R; ang=((ang%180)+180)%180;
+    E.push({a,b,L,ang});
+  }
+  const groups=[];
+  for(const e of E){
+    let g=groups.find(g=>{const d=Math.abs(g.ang-e.ang);return Math.min(d,180-d)<1.0;});
+    if(!g){g={ang:e.ang,edges:[],L:0};groups.push(g);}
+    g.edges.push(e);g.L+=e.L;e.g=g;
+  }
+  groups.sort((a,b)=>b.L-a.L);
+  groups.forEach((g,i)=>g.color=GROUPC[i%GROUPC.length]);
+  return {E,groups};
+}
+function selfIntersects(P){
+  const n=P.length;
+  const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    if(j===i+1||(i===0&&j===n-1)) continue;
+    const a=P[i],b=P[(i+1)%n],c=P[j],d=P[(j+1)%n];
+    const d1=cr(c,d,a),d2=cr(c,d,b),d3=cr(a,b,c),d4=cr(a,b,d);
+    if(((d1>0&&d2<0)||(d1<0&&d2>0))&&((d3>0&&d4<0)||(d3<0&&d4>0))) return true;
+  }
+  return false;
+}
+
+/* ---------- shared results ---------- */
+let R=null;          // current result shown
+const NU=7200;
+function makeResult(uni,N,extra){
+  const pts=[];for(let i=0;i<N;i++)pts.push([i*360/N,uni[i]]);
+  if(extra){for(const e of extra)pts.push(e);pts.sort((a,b)=>a[0]-b[0]);}
+  return {uni,N,pts,stats:stats(uni,N)};
+}
+function stats(u,N){
+  const sect=(fn)=>{let s=0,n=0,arr=[];for(let i=0;i<N;i++){const a=i*360/N;if(fn(a)){s+=u[i];n++;arr.push(u[i]);}}arr.sort((a,b)=>a-b);return {mean:10*Math.log10(s/n+1e-30),med:10*Math.log10(arr[arr.length>>1]+1e-30)};};
+  let pk=0,pa=0;for(let i=0;i<N;i++)if(u[i]>pk){pk=u[i];pa=i*360/N;}
+  return {
+    nose:sect(a=>a<=30||a>=330),
+    beam:sect(a=>(a>=60&&a<=120)||(a>=240&&a<=300)),
+    tail:sect(a=>a>=150&&a<=210),
+    all:sect(()=>true),
+    peak:{db:10*Math.log10(pk+1e-30),az:pa}
+  };
+}
+function lobes(u,N){
+  const db=Array.from(u,v=>10*Math.log10(v+1e-30)),w=Math.max(2,Math.round(N/360*3)),L=[];
+  for(let i=0;i<N;i++){let m=true;for(let j=1;j<=w;j++){if(db[(i+j)%N]>db[i]||db[(i-j+N)%N]>db[i]){m=false;break;}}if(m)L.push({az:i*360/N,db:db[i]});}
+  L.sort((a,b)=>b.db-a.db);
+  const out=[];for(const l of L){if(out.every(o=>{const d=Math.abs(o.az-l.az);return Math.min(d,360-d)>=4;}))out.push(l);if(out.length>=10)break;}
+  return out;
+}
+
+/* ---------- parametric compute ---------- */
+function computeParam(){
+  const H=half(),P=full(H),lam=0.299792458/S.f,el=S.el*D2R;
+  let maxd=0;for(const p of P)maxd=Math.max(maxd,Math.abs(p[0]),Math.abs(p[1]));
+  const {E,groups}=edges(P);
+  const uni=new Float64Array(NU);
+  for(let i=0;i<NU;i++) uni[i]=rcs(P,lam,el,i*2*Math.PI/NU,maxd);
+  const extra=[];
+  for(const g of groups){
+    g.az=[];
+    for(const off of [90,270]){
+      const az=((g.ang+off)%360+360)%360,s=rcs(P,lam,el,az*D2R,maxd);
+      g.az.push({az,db:10*Math.log10(s+1e-30)});extra.push([az,s]);
+    }
+    g.peak=Math.max(...g.az.map(a=>a.db));
+    g.nose=g.az.some(a=>a.az<=30||a.az>=330);
+  }
+  R=Object.assign(makeResult(uni,NU,extra),{mode:'param',H,P,E,groups,lam,area:Math.abs(polyArea(P)),span:2*S.b,bad:selfIntersects(P)});
+}
+
+/* ---------- STEP: import, orientation, solve ---------- */
+let occt=null,occtLoading=null,MESH=null,job=null;
+const AX={'+X':[1,0,0],'-X':[-1,0,0],'+Y':[0,1,0],'-Y':[0,-1,0],'+Z':[0,0,1],'-Z':[0,0,-1]};
+const QUAL={coarse:[0.01,0.6],medium:[0.004,0.35],fine:[0.0015,0.2]};
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('Could not load '+src));document.head.appendChild(s);});}
+function getOcct(){
+  if(occt) return Promise.resolve(occt);
+  if(!occtLoading) occtLoading=(async()=>{
+    setStatus('Loading the STEP reader (about 10 MB, first time only)…',0.05);
+    await loadScript('occt-import-js.js');await loadScript('occt-wasm.js');
+    const bin=Uint8Array.from(atob(window.OCCT_WASM_B64),c=>c.charCodeAt(0));
+    occt=await occtimportjs({wasmBinary:bin});return occt;
+  })();
+  return occtLoading;
+}
+let rawFile=null;
+async function importStep(buf,name){
+  try{
+    const o=await getOcct();
+    setStatus('Tessellating '+name+'…',0.1);
+    await new Promise(r=>setTimeout(r,30));
+    const [ld,ad]=QUAL[S.qual];
+    const res=o.ReadStepFile(new Uint8Array(buf),{linearUnit:'meter',linearDeflectionType:'bounding_box_ratio',linearDeflection:ld,angularDeflection:ad});
+    if(!res.success||!res.meshes.length) throw new Error('No solid geometry found in this file. Check it is a STEP (AP203/AP214/AP242) export with bodies, not just curves.');
+    let nt=0;for(const m of res.meshes)nt+=m.index.array.length/3;
+    const part=new Int32Array(nt),names=[];const T=new Float64Array(nt*13),mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
+    let t=0,vol=0,area=0;
+    for(let mi=0;mi<res.meshes.length;mi++){
+      const m=res.meshes[mi];names.push((m.name&&m.name.trim())||'Part');
+      const p=m.attributes.position.array,ix=m.index.array;
+      for(let i=0;i<ix.length;i+=3){
+        const a=ix[i]*3,b=ix[i+1]*3,c=ix[i+2]*3;
+        const ux=p[b]-p[a],uy=p[b+1]-p[a+1],uz=p[b+2]-p[a+2],wx=p[c]-p[a],wy=p[c+1]-p[a+1],wz=p[c+2]-p[a+2];
+        const nx=uy*wz-uz*wy,ny=uz*wx-ux*wz,nz=ux*wy-uy*wx,L=Math.hypot(nx,ny,nz);
+        if(L<1e-14) continue;
+        const o=t*13;T[o]=nx/L;T[o+1]=ny/L;T[o+2]=nz/L;
+        for(let v=0;v<3;v++){const s=[a,b,c][v];for(let k=0;k<3;k++){T[o+3+3*v+k]=p[s+k];mn[k]=Math.min(mn[k],p[s+k]);mx[k]=Math.max(mx[k],p[s+k]);}}
+        T[o+12]=L/2;area+=L/2;part[t]=mi;
+        vol+=(p[a]*(p[b+1]*p[c+2]-p[b+2]*p[c+1])-p[a+1]*(p[b]*p[c+2]-p[b+2]*p[c])+p[a+2]*(p[b]*p[c+1]-p[b+1]*p[c]))/6;
+        t++;
+      }
+    }
+    const ext=[0,1,2].map(k=>mx[k]-mn[k]);
+    // flip if mesh winding is inward overall
+    if(vol<0){for(let i=0;i<t;i++){const o=i*13;T[o]=-T[o];T[o+1]=-T[o+1];T[o+2]=-T[o+2];const x=[T[o+6],T[o+7],T[o+8]];T[o+6]=T[o+9];T[o+7]=T[o+10];T[o+8]=T[o+11];T[o+9]=x[0];T[o+10]=x[1];T[o+11]=x[2];}}
+    const thin=Math.abs(vol)<1e-6*Math.max(...ext)**3;
+    {const seen={},tot={};names.forEach(n=>tot[n]=(tot[n]||0)+1);names.forEach((n,i)=>{if(tot[n]>1){seen[n]=(seen[n]||0)+1;names[i]=n+' #'+seen[n];}});}
+    MESH={T:T.subarray(0,t*13),nt:t,part:part.subarray(0,t),names,np:names.length,mn,mx,ext,name,area,thin};
+    buildViewer();
+    if(!S.userAxes){
+      const ord=[0,1,2].sort((a,b)=>ext[a]-ext[b]);const nm=['X','Y','Z'];
+      S.up='+'+nm[ord[0]];S.fwd='+'+nm[ord[1]];syncSel();
+    }
+    if(thin&&!S.two){S.two=true;document.getElementById('two').value='1';}
+    setStatus(`${name}: ${t.toLocaleString()} triangles, ${ext.map(v=>v.toFixed(3)).join(' × ')} m (X × Y × Z)${thin?'. Looks like open sheets, so faces are two-sided.':''}`,0);
+    solve3D();
+  }catch(err){setStatus(err.message||String(err),0,true);}
+}
+function frame(){
+  const F=AX[S.fwd].slice(),U=AX[S.up].slice();
+  const Rt=[F[1]*U[2]-F[2]*U[1],F[2]*U[0]-F[0]*U[2],F[0]*U[1]-F[1]*U[0]];
+  return {F,U,Rt};
+}
+let solveTimer=null;
+function solve3D(){clearTimeout(solveTimer);solveTimer=setTimeout(runSolve,250);}
+function runSolve(){
+  if(!MESH) return;
+  if(job){job.workers.forEach(w=>w.terminate());job=null;}
+  const {F,U,Rt}=frame();
+  if(Math.abs(F[0]*U[0]+F[1]*U[1]+F[2]*U[2])>0.5){setStatus('Nose and up axes must be different. Change one of them.',0,true);return;}
+  const N=S.N3,lam=0.299792458/S.f,el=S.el3*D2R;
+  const nw=Math.max(1,Math.min(8,navigator.hardwareConcurrency||4));
+  const url=URL.createObjectURL(new Blob([WORKER_SRC],{type:'text/javascript'}));
+  const uni=new Float64Array(N),acc=new Float64Array(4*MESH.nt),pacc=new Float64Array(4*MESH.np),cnt=new Float64Array(4);let done=0,prog=0;
+  const merge=r=>{uni.set(r.out,r.i0);for(let j=0;j<acc.length;j++)acc[j]+=r.acc[j];for(let j=0;j<pacc.length;j++)pacc[j]+=r.pacc[j];for(let j=0;j<4;j++)cnt[j]+=r.cnt[j];};const t0=performance.now();
+  const my={workers:[]};job=my;
+  for(let w=0;w<nw;w++){
+    const i0=Math.floor(N*w/nw),i1=Math.floor(N*(w+1)/nw);
+    let wk;try{wk=new Worker(url);}catch(e){wk=null;}
+    if(!wk){ // fallback: main thread
+      const r=sweep3D({T:MESH.T,nt:MESH.nt,lam,el,F,U,Rt,i0,i1,N,two:S.two,part:MESH.part,np:MESH.np});r.i0=i0;merge(r);done++;continue;
+    }
+    my.workers.push(wk);
+    wk.onmessage=e=>{
+      if(job!==my) return;
+      if(e.data.p){prog+=e.data.p;setStatus(`Solving ${MESH.nt.toLocaleString()} facets × ${N.toLocaleString()} angles… ${Math.round(100*prog/N)}%`,prog/N);return;}
+      merge(e.data);done++;wk.terminate();
+      if(done===nw){
+        job=null;
+        R=Object.assign(makeResult(uni,N),{mode:'step',lam,el,lobes:lobes(uni,N),mesh:MESH,frame:{F,U,Rt},hs:{acc,pacc,cnt}});
+        setStatus(`${MESH.name}: ${MESH.nt.toLocaleString()} facets, solved in ${((performance.now()-t0)/1000).toFixed(1)} s`,0);
+        drawAll();
+      }
+    };
+    wk.onerror=e=>setStatus('Solver error: '+e.message,0,true);
+    wk.postMessage({T:MESH.T,nt:MESH.nt,lam,el,F,U,Rt,i0,i1,N,two:S.two,part:MESH.part,np:MESH.np});
+  }
+  if(!my.workers.length&&done===nw){R=Object.assign(makeResult(uni,N),{mode:'step',lam,el,lobes:lobes(uni,N),mesh:MESH,frame:{F,U,Rt},hs:{acc,pacc,cnt}});drawAll();}
+}
+function setStatus(msg,p,err){const el=document.getElementById('status');el.textContent=msg;el.style.color=err?'var(--warn)':'';document.getElementById('prog').style.width=Math.round((p||0)*100)+'%';}
+
+/* ---------- drawing helpers ---------- */
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function fit(cv){const r=cv.getBoundingClientRect(),dpr=window.devicePixelRatio||1;cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);return {c,w:r.width,h:r.height};}
+const plan=document.getElementById('plan'),polar=document.getElementById('polar');
+let planMap=null,drag=-1;
+
+function setupView(c,w,h,minx,maxx,miny,maxy){
+  const pad=34,sc=Math.min((w-2*pad)/Math.max(maxy-miny,1e-6),(h-2*pad)/Math.max(maxx-minx,1e-6));
+  const cx=w/2-((maxy+miny)/2)*sc,cy=h/2+((maxx+minx)/2)*sc;
+  const T=p=>[cx+p[1]*sc,cy-p[0]*sc];
+  planMap={T,inv:(sx,sy)=>[(cy-sy)/sc,(sx-cx)/sc],sc,mid:[(maxx+minx)/2,(maxy+miny)/2]};
+  const span=Math.max(maxx-minx,maxy-miny);
+  const step=[0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10].find(s=>s*sc>=40)||10;
+  c.strokeStyle=css('--line');c.lineWidth=1;c.beginPath();
+  const x0=Math.floor((cy-h)/sc/step)*step,y0=Math.floor(-cx/sc/step)*step;
+  for(let y=y0;y<=(w-cx)/sc;y+=step){const X=cx+y*sc;c.moveTo(X,0);c.lineTo(X,h);}
+  for(let x=x0;x<=cy/sc;x+=step){const Y=cy-x*sc;c.moveTo(0,Y);c.lineTo(w,Y);}
+  c.stroke();
+  c.fillStyle=css('--muted');c.font='12px '+css('--mono');c.textAlign='left';
+  c.fillRect(12,h-16,sc*step,2);c.fillText((step>=1?step+' m':step*100+' cm'),12,h-22);
+  return {T,sc};
+}
+function drawArrow(c,w,h){
+  if(S.hover==null) return;
+  const ph=S.hover*D2R,mid=planMap.T(planMap.mid);
+  const len=Math.min(w,h)*0.46,ex=mid[0]+Math.sin(ph)*len,ey=mid[1]-Math.cos(ph)*len;
+  c.strokeStyle=css('--accent');c.lineWidth=1.5;c.setLineDash([6,4]);
+  c.beginPath();c.moveTo(mid[0],mid[1]);c.lineTo(ex,ey);c.stroke();c.setLineDash([]);
+  c.fillStyle=css('--accent');c.beginPath();c.arc(ex,ey,4,0,7);c.fill();
+  c.font='600 11px '+css('--body');c.fillText('radar',ex+6,ey-6);
+}
+function drawPlan(){
+  const {c,w,h}=fit(plan);
+  if(S.mode==='step'){
+    return;
+    if(!MESH){c.fillStyle=css('--muted');c.font='14px '+css('--body');c.textAlign='center';c.fillText('Load a STEP file to see its top view here',w/2,h/2);return;}
+    const {F,Rt}=frame(),Tm=MESH.T;
+    let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
+    const pr=new Float64Array(MESH.nt*6);
+    for(let t=0;t<MESH.nt;t++)for(let v=0;v<3;v++){const o=t*13+3+3*v;const x=Tm[o]*F[0]+Tm[o+1]*F[1]+Tm[o+2]*F[2],y=Tm[o]*Rt[0]+Tm[o+1]*Rt[1]+Tm[o+2]*Rt[2];pr[t*6+2*v]=x;pr[t*6+2*v+1]=y;
+      if(x<minx)minx=x;if(x>maxx)maxx=x;if(y<miny)miny=y;if(y>maxy)maxy=y;}
+    const {T}=setupView(c,w,h,minx,maxx,miny,maxy);
+    c.beginPath();
+    for(let t=0;t<MESH.nt;t++){const a=T([pr[t*6],pr[t*6+1]]),b=T([pr[t*6+2],pr[t*6+3]]),d=T([pr[t*6+4],pr[t*6+5]]);c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.lineTo(d[0],d[1]);c.closePath();}
+    c.fillStyle=css('--ink');c.globalAlpha=.16;c.fill('nonzero');c.globalAlpha=1;
+    if(MESH.nt<60000){c.strokeStyle=css('--ink');c.globalAlpha=.10;c.lineWidth=.5;c.stroke();c.globalAlpha=1;}
+    const n=T([maxx,(miny+maxy)/2]);c.fillStyle=css('--muted');c.font='12px '+css('--mono');c.textAlign='center';c.fillText('NOSE ▲',n[0],Math.max(12,n[1]-10));
+    drawArrow(c,w,h);return;
+  }
+  const P=R.P;
+  let minx=Infinity,maxx=-Infinity,maxy=0;
+  for(const p of P){minx=Math.min(minx,p[0]);maxx=Math.max(maxx,p[0]);maxy=Math.max(maxy,Math.abs(p[1]));}
+  const {T}=setupView(c,w,h,minx,maxx,-maxy,maxy);
+  const cx=T([0,0])[0];
+  c.setLineDash([4,4]);c.strokeStyle=css('--muted');c.beginPath();c.moveTo(cx,0);c.lineTo(cx,h);c.stroke();c.setLineDash([]);
+  c.beginPath();P.forEach((p,i)=>{const q=T(p);i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]);});c.closePath();
+  c.fillStyle=css('--ink');c.globalAlpha=.07;c.fill();c.globalAlpha=1;
+  c.lineWidth=3;c.lineCap='round';
+  for(const e of R.E){const a=T(e.a),b=T(e.b);c.strokeStyle=e.g.color;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}
+  drawArrow(c,w,h);
+  R.H.forEach((p,i)=>{const q=T(p);c.beginPath();c.arc(q[0],q[1],6.5,0,7);c.fillStyle=css('--panel');c.fill();c.lineWidth=2;c.strokeStyle=i===drag?css('--accent'):css('--ink');c.stroke();});
+  c.fillStyle=css('--muted');c.font='12px '+css('--mono');c.textAlign='left';c.fillText('NOSE',cx+6,14);
+}
+
+function drawPolar(){
+  const {c,w,h}=fit(polar);
+  const cx=w/2,cy=h/2,Rm=Math.min(w,h)/2-30;
+  polar._geo={cx,cy};
+  if(!R){c.fillStyle=css('--muted');c.font='14px '+css('--body');c.textAlign='center';c.fillText('No result yet',cx,cy);return;}
+  const all=R.pts.map(p=>10*Math.log10(p[1]+1e-30));
+  let top=Math.ceil(Math.max(...all)/10)*10;
+  if(S.ref) top=Math.max(top,Math.ceil(Math.max(...S.ref.db)/10)*10);
+  const rng=60,bot=top-rng;
+  const rad=db=>Math.max(0,Math.min(1,(db-bot)/rng))*Rm;
+  const XY=(az,db)=>{const r=rad(db),a=az*D2R;return [cx+r*Math.sin(a),cy-r*Math.cos(a)];};
+  c.fillStyle=css('--accent');c.globalAlpha=.07;c.beginPath();c.moveTo(cx,cy);c.arc(cx,cy,Rm,-Math.PI/2-30*D2R,-Math.PI/2+30*D2R);c.closePath();c.fill();c.globalAlpha=1;
+  c.strokeStyle=css('--line');c.lineWidth=1;c.fillStyle=css('--muted');c.font='12px '+css('--mono');c.textAlign='left';
+  for(let d=bot+10;d<=top;d+=10){const r=rad(d);c.beginPath();c.arc(cx,cy,r,0,7);c.stroke();}
+  for(let d=bot+10;d<=top;d+=10){const q=XY(105,d);c.fillText(d+'',q[0]+3,q[1]+11);}
+  c.textAlign='center';c.textBaseline='middle';
+  for(let a=0;a<360;a+=30){const p=XY(a,top);c.beginPath();c.moveTo(cx,cy);c.lineTo(p[0],p[1]);c.stroke();
+    const lab=XY(a,top+rng*0.07);c.fillText(a+'°',lab[0],lab[1]);}
+  c.textBaseline='alphabetic';
+  if(R.mode==='param') for(const g of R.groups)for(const s of g.az){const a=XY(s.az,top),b=XY(s.az,top-rng*0.06);c.strokeStyle=g.color;c.lineWidth=3;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}
+  const path=(arr,col,wid,dash)=>{c.strokeStyle=col;c.lineWidth=wid;c.setLineDash(dash);c.lineJoin='round';c.beginPath();arr.forEach((p,i)=>{const q=XY(p[0],p[1]);i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]);});c.closePath();c.stroke();c.setLineDash([]);};
+  if(S.ref) path(S.ref.az.map((a,i)=>[a,S.ref.db[i]]),css('--ref'),1.2,[4,3]);
+  path(R.pts.map(p=>[p[0],10*Math.log10(p[1]+1e-30)]),css('--accent'),1.4,[]);
+  if(S.hover!=null){const db=valAt(S.hover);const q=XY(S.hover,db);c.fillStyle=css('--ink');c.beginPath();c.arc(q[0],q[1],4,0,7);c.fill();
+    const e=XY(S.hover,top);c.strokeStyle=css('--ink');c.globalAlpha=.4;c.lineWidth=1;c.beginPath();c.moveTo(cx,cy);c.lineTo(e[0],e[1]);c.stroke();c.globalAlpha=1;}
+}
+function valAt(az){const N=R.N,i=Math.round(((az%360+360)%360)/360*N)%N;return 10*Math.log10(R.uni[i]+1e-30);}
+
+/* ---------- tables and tiles ---------- */
+const fmt=(v,d=1)=>(v>=0?'+':'−')+Math.abs(v).toFixed(d);
+function renderText(){
+  const tilesEl=document.getElementById('tiles');
+  if(!R){tilesEl.innerHTML='';document.getElementById('spikes').innerHTML='';return;}
+  const st=R.stats,rs=S.ref&&S.ref.stats;
+  const tile=(k,label,o,showAz)=>{
+    const v=o.db!==undefined?o.db:o.mean;
+    let d='<div class="d"></div>';
+    if(rs){const rv=rs[k].db!==undefined?rs[k].db:rs[k].mean;const dv=v-rv;d=`<div class="d ${dv<-0.05?'better':dv>0.05?'worse':''}">${fmt(dv)} dB vs ref</div>`;}
+    const extra=showAz?`@ ${o.az.toFixed(1)}°`:`med ${o.med.toFixed(1)}`;
+    return `<div class="tile"><div class="v">${v.toFixed(1)}<small>dBsm</small></div><div class="k"><b>${label}</b> · ${extra}</div>${d}</div>`;
+  };
+  tilesEl.innerHTML=tile('nose','Nose ±30° mean',st.nose)+tile('beam','Beam 60–120° mean',st.beam)+tile('tail','Tail ±30° mean',st.tail)+tile('all','All-aspect mean',st.all)+tile('peak','Peak',st.peak,true);
+  const inNose=az=>az<=30||az>=330;
+  if(R.mode==='param'){
+    document.getElementById('h-spk').textContent='Edge spikes';
+    document.getElementById('spkhead').innerHTML='<tr><th>Edge group</th><th>Edges</th><th>Total length</th><th>Spike azimuths</th><th>Spike level</th><th>Inside nose ±30°?</th></tr>';
+    document.getElementById('spikes').innerHTML=R.groups.slice().sort((a,b)=>b.peak-a.peak).map(g=>
+      `<tr><td><span class="sw" style="background:${g.color}"></span>${g.ang.toFixed(1)}° direction</td><td class="num">${g.edges.length}</td><td class="num">${g.L.toFixed(2)} m</td><td class="num">${g.az.map(a=>a.az.toFixed(1)+'°').join(', ')}</td><td class="num">${g.peak.toFixed(1)} dBsm</td><td>${g.nose?'<span class="chip warn">Yes</span>':'<span class="chip">No</span>'}</td></tr>`).join('');
+    document.getElementById('meta').innerHTML=`λ ${(R.lam*100).toFixed(2)} cm · span ${R.span.toFixed(2)} m = ${(R.span/R.lam).toFixed(0)}λ<br>area ${R.area.toFixed(2)} m² · ${R.groups.length} edge directions`;
+    document.getElementById('warnchip').innerHTML=R.bad?'<span class="chip warn">Planform crosses itself, results invalid</span>':(R.span/R.lam<5?'<span class="chip warn">Under 5λ span, qualitative only</span>':'');
+  }else{
+    document.getElementById('h-spk').textContent='Strongest lobes';
+    document.getElementById('spkhead').innerHTML='<tr><th>Rank</th><th>Azimuth</th><th>Level</th><th>Below peak</th><th>Inside nose ±30°?</th></tr>';
+    const pk=R.lobes[0]?R.lobes[0].db:0;
+    document.getElementById('spikes').innerHTML=R.lobes.map((l,i)=>`<tr><td class="num">${i+1}</td><td class="num">${l.az.toFixed(2)}°</td><td class="num">${l.db.toFixed(1)} dBsm</td><td class="num">${(l.db-pk).toFixed(1)} dB</td><td>${inNose(l.az)?'<span class="chip warn">Yes</span>':'<span class="chip">No</span>'}</td></tr>`).join('');
+    const span=Math.max(...R.mesh.ext);
+    document.getElementById('meta').innerHTML=`λ ${(R.lam*100).toFixed(2)} cm · largest dim ${span.toFixed(2)} m = ${(span/R.lam).toFixed(0)}λ<br>surface ${R.mesh.area.toFixed(2)} m² · ${R.mesh.nt.toLocaleString()} facets`;
+    document.getElementById('warnchip').innerHTML=span/R.lam<5?'<span class="chip warn">Under 5λ, qualitative only</span>':'';
+  }
+  document.getElementById('modechip').hidden=!S.custom;
+  document.querySelectorAll('#presets button').forEach(b=>b.classList.toggle('on',!S.custom&&b.dataset.id===activePreset));
+}
+function drawAll(){drawPlan();drawPolar();renderText();updateHot();}
+function update(){
+  if(S.mode==='param'){computeParam();drawAll();}
+  else{drawAll();solve3D();}
+}
+
+/* ---------- controls ---------- */
+const BANDS=f=>f<2?'L':f<4?'S':f<8?'C':f<12?'X':'Ku';
+const geoDefs=[
+  {k:'b',label:'Semi-span',min:1,max:6,step:0.05,u:v=>v.toFixed(2)+' m'},
+  {k:'sweep',label:'Leading-edge sweep',min:15,max:65,step:0.5,u:v=>v.toFixed(1)+'°'},
+  {k:'ct',label:'Tip chord',min:0.1,max:1.5,step:0.05,u:v=>v.toFixed(2)+' m'},
+  {k:'tip',label:'Tip edge',seg:[['stream','Streamwise'],['aligned','Aligned cut']]},
+  {k:'te',label:'Trailing edge',seg:[['straight','Straight'],['saw','Sawtooth']]},
+  {k:'teSweep',label:'TE sweep (straight)',min:-65,max:40,step:0.5,u:v=>v.toFixed(1)+'°',show:()=>S.te==='straight'},
+  {k:'teeth',label:'Sawtooth segments',min:2,max:6,step:1,u:v=>v+'',show:()=>S.te==='saw'},
+];
+const radarDefs=[
+  {k:'f',label:'Frequency',min:1,max:18,step:0.1,u:v=>v.toFixed(1)+' GHz ('+BANDS(v)+')'},
+  {k:'el',label:'Elevation above plate',min:0.5,max:45,step:0.5,u:v=>v.toFixed(1)+'°',show:()=>S.mode==='param'},
+  {k:'el3',label:'Radar elevation (− is below)',min:-60,max:60,step:0.5,u:v=>(v>0?'+':'')+v.toFixed(1)+'°',show:()=>S.mode==='step'},
+];
+function buildRows(host,defs,geo){
+  host.innerHTML='';
+  for(const d of defs){
+    const row=document.createElement('div');row.className='row';row.id='row-'+d.k;
+    if(d.seg){
+      row.innerHTML=`<label>${d.label}</label><span></span><div class="seg">${d.seg.map(([v,t])=>`<button type="button" id="seg-${d.k}-${v}" data-v="${v}">${t}</button>`).join('')}</div>`;
+      row.querySelectorAll('button').forEach(b=>b.onclick=()=>{S[d.k]=b.dataset.v;if(geo)S.custom=null;syncControls();update();});
+    }else{
+      row.innerHTML=`<label for="in-${d.k}">${d.label}</label><output id="out-${d.k}"></output><input type="range" id="in-${d.k}" min="${d.min}" max="${d.max}" step="${d.step}">`;
+      const inp=row.querySelector('input');
+      inp.oninput=()=>{S[d.k]=parseFloat(inp.value);if(geo)S.custom=null;syncControls();update();};
+    }
+    host.appendChild(row);
+  }
+}
+function syncControls(){
+  for(const d of geoDefs.concat(radarDefs)){
+    const row=document.getElementById('row-'+d.k);
+    if(d.show) row.hidden=!d.show();
+    if(d.seg){d.seg.forEach(([v])=>document.getElementById(`seg-${d.k}-${v}`).classList.toggle('on',S[d.k]===v));}
+    else{document.getElementById('in-'+d.k).value=S[d.k];document.getElementById('out-'+d.k).textContent=d.u(S[d.k]);}
+  }
+  document.getElementById('m-param').classList.toggle('on',S.mode==='param');
+  document.getElementById('m-step').classList.toggle('on',S.mode==='step');
+  document.getElementById('paramUI').hidden=S.mode!=='param';
+  document.getElementById('stepUI').hidden=S.mode!=='step';
+  document.getElementById('h-plan').textContent=S.mode==='param'?'Planform (top view, nose up)':'Model hot spots (3D)';
+  document.getElementById('plancap').textContent=S.mode==='param'?'Drag the round handles to reshape. The left half mirrors. Edges with the same colour are parallel and spike at the same azimuth.':'Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom. Grey arrow is the nose; orange arrow is the radar look direction.';
+  plan.style.cursor='grab';
+  plan.hidden=S.mode!=='param';
+  document.getElementById('v3dwrap').hidden=S.mode!=='step';
+  document.getElementById('plancard').classList.toggle('wide',S.mode==='step');
+  document.getElementById('hotcard').hidden=S.mode!=='step';
+  if(S.mode==='step'&&V){requestAnimationFrame(()=>{sizeV();render3D();});}
+}
+function syncSel(){document.getElementById('fwd').value=S.fwd;document.getElementById('up').value=S.up;}
+buildRows(document.getElementById('geo'),geoDefs,true);
+buildRows(document.getElementById('radar'),radarDefs,false);
+const pre=document.getElementById('presets');
+for(const p of PRESETS){const b=document.createElement('button');b.type='button';b.textContent=p.name;b.dataset.id=p.id;
+  b.onclick=()=>{Object.assign(S,p.set);S.custom=null;activePreset=p.id;syncControls();update();};pre.appendChild(b);}
+for(const id of ['fwd','up']){const el=document.getElementById(id);el.innerHTML=Object.keys(AX).map(k=>`<option value="${k}">${k}</option>`).join('');
+  el.onchange=()=>{S[id]=el.value;S.userAxes=true;resetView();solve3D();};}
+syncSel();
+document.getElementById('qual').onchange=e=>{S.qual=e.target.value;if(rawFile)importStep(rawFile.buf,rawFile.name);};
+document.getElementById('res').onchange=e=>{S.N3=parseInt(e.target.value);solve3D();};
+document.getElementById('two').onchange=e=>{S.two=e.target.value==='1';solve3D();};
+document.getElementById('m-param').onclick=()=>{S.mode='param';S.hover=null;syncControls();update();};
+document.getElementById('m-step').onclick=()=>{S.mode='step';S.hover=null;R=null;syncControls();if(MESH)update();else drawAll();getOcct().then(()=>{if(!MESH)setStatus('Reader ready. Choose a STEP file.',0);}).catch(e=>setStatus(e.message,0,true));};
+async function takeFile(f){
+  if(!f) return;
+  if(!/\.(step|stp)$/i.test(f.name)){setStatus('That is not a .step or .stp file. Export the model from your CAD tool as STEP AP214 or AP242.',0,true);return;}
+  const buf=await f.arrayBuffer();rawFile={buf,name:f.name};S.userAxes=false;importStep(buf,f.name);
+}
+document.getElementById('file').onchange=e=>takeFile(e.target.files[0]);
+const drop=document.getElementById('drop');
+for(const host of [drop,plan]){
+  host.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
+  host.addEventListener('dragleave',()=>drop.classList.remove('over'));
+  host.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');if(S.mode!=='step'){S.mode='step';syncControls();}takeFile(e.dataTransfer.files[0]);});
+}
+document.getElementById('freeze').onclick=()=>{
+  if(!R) return;
+  S.ref={az:R.pts.map(p=>p[0]),db:R.pts.map(p=>10*Math.log10(p[1]+1e-30)),stats:JSON.parse(JSON.stringify(R.stats))};
+  drawAll();
+};
+document.getElementById('clearref').onclick=()=>{S.ref=null;drawAll();};
+
+/* ---------- planform dragging ---------- */
+function evPos(cv,e){const r=cv.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
+plan.addEventListener('pointerdown',e=>{
+  if(S.mode!=='param') return;
+  const [sx,sy]=evPos(plan,e);
+  let best=-1,bd=14;
+  R.H.forEach((p,i)=>{if(i===0)return;const q=planMap.T(p);const d=Math.hypot(q[0]-sx,q[1]-sy);if(d<bd){bd=d;best=i;}});
+  if(best>=0){drag=best;S.custom=R.H.map(p=>p.slice());plan.setPointerCapture(e.pointerId);plan.style.cursor='grabbing';drawPlan();}
+});
+plan.addEventListener('pointermove',e=>{
+  if(drag<0) return;
+  const [sx,sy]=evPos(plan,e);let [x,y]=planMap.inv(sx,sy);
+  const last=S.custom.length-1;
+  if(drag===last) y=0; else y=Math.max(0,y);
+  S.custom[drag]=[x,y];update();
+});
+const endDrag=()=>{if(drag>=0){drag=-1;plan.style.cursor='grab';drawPlan();}};
+plan.addEventListener('pointerup',endDrag);plan.addEventListener('pointercancel',endDrag);
+
+/* ---------- polar hover ---------- */
+polar.addEventListener('pointermove',e=>{
+  if(!R) return;
+  const [sx,sy]=evPos(polar,e),g=polar._geo;
+  let az=Math.atan2(sx-g.cx,-(sy-g.cy))/D2R;az=(az+360)%360;
+  S.hover=Math.round(az*20)/20;
+  const db=valAt(S.hover);
+  document.getElementById('readout').textContent=`${S.hover.toFixed(1)}°  ${db.toFixed(1)} dBsm  (${Math.pow(10,db/10).toExponential(2)} m²)`;
+  drawPolar();if(S.mode==='param')drawPlan();else hotFollow();
+});
+polar.addEventListener('pointerleave',()=>{S.hover=null;document.getElementById('readout').textContent='Hover the plot';if(R){drawPolar();if(S.mode==='param')drawPlan();else hotFollow();}});
+
+/* ---------- theme and resize ---------- */
+const redraw=()=>{drawPlan();drawPolar();};
+window.addEventListener('resize',redraw);
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',redraw);}catch(e){}
+new MutationObserver(redraw).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(redraw);
+
+
+/* ---------- 3D hot-spot viewer ---------- */
+const HS={mode:'0',range:30,lock:null,az:0};
+let V=null;
+const CMAP=[[0,[48,18,59]],[0.2,[70,98,215]],[0.4,[26,228,182]],[0.6,[162,252,60]],[0.8,[250,186,57]],[1,[210,49,5]]];
+function cmap(t){t=Math.max(0,Math.min(1,t));for(let i=1;i<CMAP.length;i++){if(t<=CMAP[i][0]){const a=CMAP[i-1],b=CMAP[i],u=(t-a[0])/(b[0]-a[0]);return [0,1,2].map(k=>(a[1][k]+u*(b[1][k]-a[1][k]))/255);}}return CMAP[CMAP.length-1][1].map(v=>v/255);}
+function buildViewer(){
+  const host=document.getElementById('v3d');
+  if(typeof THREE==='undefined'){host.textContent='3D viewer failed to load.';return;}
+  if(V){V.scene.remove(V.mesh);V.mesh.geometry.dispose();if(V.edges){V.scene.remove(V.edges);V.edges.geometry.dispose();}}
+  else{
+    const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+    renderer.setPixelRatio(window.devicePixelRatio||1);
+    host.innerHTML='';host.appendChild(renderer.domElement);
+    const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,1,0.001,1e5);
+    scene.add(new THREE.AmbientLight(0xffffff,0.62));
+    const dl=new THREE.DirectionalLight(0xffffff,0.55);camera.add(dl);dl.position.set(0.4,1,1.2);scene.add(camera);
+    V={renderer,scene,camera,controls:null,host};
+    new ResizeObserver(()=>{sizeV();render3D();}).observe(host);
+  }
+  const nt=MESH.nt,T=MESH.T,pos=new Float32Array(nt*9),nor=new Float32Array(nt*9),col=new Float32Array(nt*9);
+  for(let t=0;t<nt;t++){const o=t*13;for(let v=0;v<3;v++){for(let k=0;k<3;k++){pos[t*9+v*3+k]=T[o+3+v*3+k];nor[t*9+v*3+k]=T[o+k];}}}
+  col.fill(0.62);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('normal',new THREE.BufferAttribute(nor,3));g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const mat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide});
+  V.mesh=new THREE.Mesh(g,mat);V.scene.add(V.mesh);
+  if(nt<150000){const eg=new THREE.EdgesGeometry(g,35);V.edges=new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.18}));V.scene.add(V.edges);}else V.edges=null;
+  g.computeBoundingSphere();V.center=g.boundingSphere.center.clone();V.rad=g.boundingSphere.radius;
+  resetView();
+}
+function sizeV(){if(!V)return;const r=V.host.getBoundingClientRect();if(!r.width)return;V.renderer.setSize(r.width,r.height,false);V.camera.aspect=r.width/r.height;V.camera.updateProjectionMatrix();}
+function makeControls(){
+  // OrbitControls reads camera.up only when constructed, so rebuild it whenever the up axis changes
+  if(V.controls) V.controls.dispose();
+  const c=new THREE.OrbitControls(V.camera,V.renderer.domElement);
+  c.enableDamping=false;c.screenSpacePanning=true;c.addEventListener('change',()=>render3D());
+  V.controls=c;
+}
+function setView(name){
+  if(!V)return;const {F,U,Rt}=frame();
+  const dirs={iso:[0.8,0.9,0.9],top:[0.001,0,1],below:[0.001,0,-1],nose:[1,0,0.001],tail:[-1,0,0.001],side:[0,1,0.001]};
+  const w=dirs[name]||dirs.iso;
+  V.camera.up.set(U[0],U[1],U[2]);makeControls();
+  const dir=new THREE.Vector3(...[0,1,2].map(i=>F[i]*w[0]+Rt[i]*w[1]+U[i]*w[2])).normalize();
+  V.camera.position.copy(V.center).addScaledVector(dir,V.rad*3.2);V.camera.near=V.rad/100;V.camera.far=V.rad*100;
+  V.controls.target.copy(V.center);V.controls.update();sizeV();updateArrows();render3D();
+}
+function resetView(){
+  if(!V)return;const {F,U,Rt}=frame();
+  V.camera.up.set(U[0],U[1],U[2]);makeControls();
+  const d=V.rad*3.2,dir=new THREE.Vector3(F[0]*0.8+Rt[0]*0.9+U[0]*0.9,F[1]*0.8+Rt[1]*0.9+U[1]*0.9,F[2]*0.8+Rt[2]*0.9+U[2]*0.9).normalize();
+  V.camera.position.copy(V.center).addScaledVector(dir,d);V.camera.near=V.rad/100;V.camera.far=V.rad*100;
+  V.controls.target.copy(V.center);V.controls.update();sizeV();updateArrows();render3D();
+}
+let rq=false;function render3D(){if(!V||rq)return;rq=true;requestAnimationFrame(()=>{rq=false;V.renderer.render(V.scene,V.camera);});}
+function kvec(azDeg,el){const {F,U,Rt}=frame(),ph=azDeg*D2R,ce=Math.cos(el),se=Math.sin(el),c=Math.cos(ph),s=Math.sin(ph);return [0,1,2].map(i=>ce*(c*F[i]+s*Rt[i])+se*U[i]);}
+function updateArrows(){
+  if(!V)return;
+  for(const a of ['radarArrow','noseArrow']) if(V[a]){V.scene.remove(V[a]);}
+  const {F}=frame(),L=V.rad*1.45;
+  V.noseArrow=new THREE.ArrowHelper(new THREE.Vector3(...F),V.center.clone().addScaledVector(new THREE.Vector3(...F),V.rad*1.02),V.rad*0.35,0x7b8794,V.rad*0.08,V.rad*0.05);
+  V.scene.add(V.noseArrow);
+  const az=arrowAngle();
+  if(az!=null){
+    const k=new THREE.Vector3(...kvec(az,S.el3*D2R)),from=V.center.clone().addScaledVector(k,L);
+    V.radarArrow=new THREE.ArrowHelper(k.clone().negate(),from,L-V.rad*1.02,0xd9480f,V.rad*0.12,V.rad*0.07);
+    V.scene.add(V.radarArrow);
+  }
+  render3D();
+}
+function hsAngle(){if(HS.mode==='angle')return HS.lock!=null?HS.lock:(S.hover!=null?S.hover:HS.az);return {0:0,1:90,2:180,3:null}[HS.mode];}
+// the arrow follows the cursor on the polar plot in every mode, then falls back to the colouring angle
+function arrowAngle(){if(S.hover!=null)return S.hover;const a=hsAngle();return a==null?HS.az:a;}
+// single-angle facet field density and per-part coherent sums
+function facetsAt(az){
+  const {F,U,Rt}=frame(),lam=0.299792458/S.f,k=2*Math.PI/lam,kk=kvec(az,S.el3*D2R),T=MESH.T,nt=MESH.nt,tmp=[0,0];
+  const out=new Float64Array(nt),pre=new Float64Array(MESH.np),pim=new Float64Array(MESH.np);
+  for(let t=0;t<nt;t++){const o=t*13;let nk=T[o]*kk[0]+T[o+1]*kk[1]+T[o+2]*kk[2];if(nk<=0){if(!S.two)continue;nk=-nk;}
+    triFT(T,o,2*k*kk[0],2*k*kk[1],2*k*kk[2],tmp);const cr=nk*tmp[0],ci=nk*tmp[1];out[t]=(cr*cr+ci*ci)/T[o+12];const p=MESH.part[t];pre[p]+=cr;pim[p]+=ci;}
+  const parts=Array.from(pre,(r,p)=>4*Math.PI/(lam*lam)*(r*r+pim[p]*pim[p]));
+  return {fac:out,parts};
+}
+function updateHot(){
+  const card=document.getElementById('hotcard');
+  if(S.mode!=='step'||!MESH||!R||R.mode!=='step'||!V){return;}
+  let fac,parts;
+  if(HS.mode==='angle'){const r=facetsAt(hsAngle());fac=r.fac;parts=r.parts;}
+  else{const s=+HS.mode,nt=MESH.nt,np=MESH.np,c=Math.max(1,R.hs.cnt[s]),lam=R.lam;
+    fac=R.hs.acc.subarray(s*nt,(s+1)*nt).map(v=>v/c);
+    parts=Array.from(R.hs.pacc.subarray(s*np,(s+1)*np),v=>4*Math.PI/(lam*lam)*v/c);}
+  // colours: dB relative to the 99.7th percentile of lit facets
+  const lit=[];for(let t=0;t<fac.length;t++)if(fac[t]>0)lit.push(fac[t]);
+  lit.sort((a,b)=>a-b);const top=lit.length?lit[Math.min(lit.length-1,Math.floor(lit.length*0.997))]:1;
+  const col=V.mesh.geometry.attributes.color.array,base=0.62;
+  for(let t=0;t<fac.length;t++){
+    const db=10*Math.log10(fac[t]/top+1e-30),u=(db+HS.range)/HS.range;
+    const c=u<=0?[base,base,base]:cmap(u);
+    for(let v=0;v<3;v++){col[t*9+v*3]=c[0];col[t*9+v*3+1]=c[1];col[t*9+v*3+2]=c[2];}
+  }
+  V.mesh.geometry.attributes.color.needsUpdate=true;
+  updateArrows();
+  // part table
+  const tot=parts.reduce((a,b)=>a+b,0)||1;
+  const rows=parts.map((v,p)=>({n:MESH.names[p],v})).sort((a,b)=>b.v-a.v).slice(0,12);
+  document.getElementById('parts').innerHTML=rows.map(r=>`<tr><td title="${r.n.replace(/"/g,'&quot;')}">${r.n.length>28?r.n.slice(0,27)+'…':r.n}</td><td class="num">${(10*Math.log10(r.v+1e-30)).toFixed(1)}</td><td class="num"><span class="sharebar"><i style="width:${(100*r.v/tot).toFixed(1)}%"></i></span>${(100*r.v/tot).toFixed(1)}%</td></tr>`).join('');
+  const lbl={0:'averaged over nose ±30°',1:'averaged over both beams (60–120°)',2:'averaged over tail ±30°',3:'averaged over all azimuths',angle:`at ${hsAngle().toFixed(1)}°${HS.lock!=null?' (locked; click the plot to release)':''}`}[HS.mode];
+  document.getElementById('hslabel').textContent=`Backscattered power per unit area ${lbl}, radar elevation ${S.el3>0?'+':''}${S.el3}°`;
+  drawBar();syncAz();
+}
+function drawBar(){
+  const cv=document.getElementById('cbar');const {c,w,h}=fit(cv);
+  for(let x=0;x<w;x++){const col=cmap(x/(w-1));c.fillStyle=`rgb(${col.map(v=>Math.round(v*255)).join(',')})`;c.fillRect(x,0,1,12);}
+  c.fillStyle=css('--muted');c.font='12px '+css('--mono');c.textAlign='left';c.fillText(`−${HS.range} dB`,0,h-2);c.textAlign='right';c.fillText('0 dB (hottest)',w,h-2);
+  c.textAlign='center';c.fillText('grey = below range or shadowed',w/2,h-2);
+}
+document.getElementById('hsmode').onchange=e=>{HS.mode=e.target.value;HS.lock=null;updateHot();};
+document.getElementById('hsrange').onchange=e=>{HS.range=+e.target.value;updateHot();};
+document.getElementById('resetview').onclick=()=>resetView();
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+let hotRAF=false;
+function hotFollow(){
+  if(HS.mode==='angle'&&HS.lock==null){if(!hotRAF){hotRAF=true;requestAnimationFrame(()=>{hotRAF=false;updateHot();});}}
+  else if(V)updateArrows();
+  syncAz();
+}
+function syncAz(){const a=arrowAngle(),inp=document.getElementById('hsaz');if(!inp)return;if(document.activeElement!==inp)inp.value=a;document.getElementById('hsazout').textContent=a.toFixed(1)+'°';}
+document.getElementById('hsaz').oninput=e=>{HS.az=+e.target.value;HS.lock=null;if(HS.mode!=='angle'){HS.mode='angle';document.getElementById('hsmode').value='angle';}updateHot();syncAz();};
+polar.addEventListener('click',()=>{if(S.mode!=='step'||S.hover==null)return;if(HS.mode!=='angle'){HS.mode='angle';document.getElementById('hsmode').value='angle';HS.lock=S.hover;}else HS.lock=HS.lock==null?S.hover:null;if(HS.lock!=null)HS.az=HS.lock;updateHot();syncAz();});
+
+syncControls();update();
+</script>
+</body>
+</html>
