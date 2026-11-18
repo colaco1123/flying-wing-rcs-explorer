@@ -14,8 +14,8 @@
 @font-face{font-family:"IBM Plex Sans Condensed";font-weight:600;font-style:normal;font-display:swap;src:url("fonts/ibm-plex-sans-condensed-latin-600-normal.woff2") format("woff2")}
 /* Layout idea: an instrument bench. A big plain question on top, then the controls rail and the two scopes side by side, numbers as one strip underneath. Surfaces are separated by tone, never by lines. */
 :root{
-  --bg:#e7ebee; --panel:#f8fafb; --well:#dde3e8; --line:#d6dde3; --ink:#13202b; --muted:#4f5f6d;
-  --accent:#c2410c; --on-accent:#ffffff; --ref:#6b7884; --scope:#ffffff; --warn:#b42318; --good:#22703a;
+  --bg:#ecebe7; --panel:#f8f7f4; --well:#e0dfd9; --line:#dcdad3; --ink:#171716; --muted:#5b5a55;
+  --accent:#2f5d3a; --on-accent:#ffffff; --ref:#8a8780; --scope:#fdfdfb; --warn:#9b2c2c; --good:#2f5d3a;
   --display:"IBM Plex Sans Condensed","Arial Narrow",sans-serif;
   --body:"IBM Plex Sans",system-ui,sans-serif;
   --mono:"IBM Plex Sans",system-ui,sans-serif; /* canvas labels use the text face with tabular figures */
@@ -23,14 +23,14 @@
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#0b1116; --panel:#121a21; --well:#1b252e; --line:#24303a; --ink:#e4eaef; --muted:#9aa8b5;
-    --accent:#fb7a3c; --on-accent:#140b05; --ref:#8d99a5; --scope:#0e151b; --warn:#ff6b5b; --good:#5cc27a;
+    --bg:#121211; --panel:#1a1a18; --well:#272724; --line:#2c2c29; --ink:#e9e8e3; --muted:#a3a19a;
+    --accent:#8fbf7a; --on-accent:#10160d; --ref:#8d8b84; --scope:#151514; --warn:#e07a6e; --good:#8fbf7a;
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#0b1116; --panel:#121a21; --well:#1b252e; --line:#24303a; --ink:#e4eaef; --muted:#9aa8b5;
-  --accent:#fb7a3c; --on-accent:#140b05; --ref:#8d99a5; --scope:#0e151b; --warn:#ff6b5b; --good:#5cc27a;
+  --bg:#121211; --panel:#1a1a18; --well:#272724; --line:#2c2c29; --ink:#e9e8e3; --muted:#a3a19a;
+  --accent:#8fbf7a; --on-accent:#10160d; --ref:#8d8b84; --scope:#151514; --warn:#e07a6e; --good:#8fbf7a;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -339,7 +339,7 @@ function half(){return S.custom||genHalf();}
 function full(H){const L=H.slice(1,-1).reverse().map(p=>[p[0],-p[1]]);return H.concat(L);}
 
 /* ---------- planform analysis ---------- */
-const GROUPC=['#1c6dd0','#2b8a3e','#9c36b5','#0b8a8a','#c2255c','#5f3dc4','#8a6d00','#a0522d'];
+const GROUPC=['#a33b3b','#b8901f','#2f8a83','#8a6a46','#a8507e','#6b7d2c','#7d6a9e','#6b6b66'];
 function edges(P){
   const E=[];
   for(let i=0;i<P.length;i++){
@@ -693,7 +693,7 @@ function syncControls(){
   document.getElementById('paramUI').hidden=S.mode!=='param';
   document.getElementById('stepUI').hidden=S.mode!=='step';
   document.getElementById('h-plan').textContent=S.mode==='param'?'Planform (top view, nose up)':'Model hot spots (3D)';
-  document.getElementById('plancap').textContent=S.mode==='param'?'Drag the round handles to reshape. The left half mirrors. Edges with the same colour are parallel and spike at the same azimuth.':'Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom. Grey arrow is the nose; orange arrow is the radar look direction.';
+  document.getElementById('plancap').textContent=S.mode==='param'?'Drag the round handles to reshape. The left half mirrors. Edges with the same colour are parallel and spike at the same azimuth.':'Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom. Grey arrow is the nose; red arrow is the radar look direction.';
   plan.style.cursor='grab';
   plan.hidden=S.mode!=='param';
   document.getElementById('v3dwrap').hidden=S.mode!=='step';
@@ -776,7 +776,7 @@ if(document.fonts&&document.fonts.ready) document.fonts.ready.then(redraw);
 /* ---------- 3D hot-spot viewer ---------- */
 const HS={mode:'0',range:30,lock:null,az:0};
 let V=null;
-const CMAP=[[0,[48,18,59]],[0.2,[70,98,215]],[0.4,[26,228,182]],[0.6,[162,252,60]],[0.8,[250,186,57]],[1,[210,49,5]]];
+const CMAP=[[0,[214,224,200]],[0.25,[160,186,128]],[0.5,[96,138,70]],[0.75,[184,144,31]],[1,[139,38,38]]];
 function cmap(t){t=Math.max(0,Math.min(1,t));for(let i=1;i<CMAP.length;i++){if(t<=CMAP[i][0]){const a=CMAP[i-1],b=CMAP[i],u=(t-a[0])/(b[0]-a[0]);return [0,1,2].map(k=>(a[1][k]+u*(b[1][k]-a[1][k]))/255);}}return CMAP[CMAP.length-1][1].map(v=>v/255);}
 function buildViewer(){
   const host=document.getElementById('v3d');
@@ -833,12 +833,12 @@ function updateArrows(){
   if(!V)return;
   for(const a of ['radarArrow','noseArrow']) if(V[a]){V.scene.remove(V[a]);}
   const {F}=frame(),L=V.rad*1.45;
-  V.noseArrow=new THREE.ArrowHelper(new THREE.Vector3(...F),V.center.clone().addScaledVector(new THREE.Vector3(...F),V.rad*1.02),V.rad*0.35,0x7b8794,V.rad*0.08,V.rad*0.05);
+  V.noseArrow=new THREE.ArrowHelper(new THREE.Vector3(...F),V.center.clone().addScaledVector(new THREE.Vector3(...F),V.rad*1.02),V.rad*0.35,0x8a8780,V.rad*0.08,V.rad*0.05);
   V.scene.add(V.noseArrow);
   const az=arrowAngle();
   if(az!=null){
     const k=new THREE.Vector3(...kvec(az,S.el3*D2R)),from=V.center.clone().addScaledVector(k,L);
-    V.radarArrow=new THREE.ArrowHelper(k.clone().negate(),from,L-V.rad*1.02,0xd9480f,V.rad*0.12,V.rad*0.07);
+    V.radarArrow=new THREE.ArrowHelper(k.clone().negate(),from,L-V.rad*1.02,0x8b2626,V.rad*0.12,V.rad*0.07);
     V.scene.add(V.radarArrow);
   }
   render3D();
