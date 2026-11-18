@@ -4,12 +4,32 @@ A browser tool for seeing where an airframe reflects radar. Sketch a flying-wing
 
 Everything runs client-side. STEP geometry is never uploaded.
 
+**Open it in your browser: https://colaco1123.github.io/flying-wing-rcs-explorer/**
+
+![Parametric planform with its RCS polar plot](docs/img/parametric.png)
+
 ## What it does
 
 - **Parametric planform.** A thin flat plate with adjustable span, sweep, tip chord, tip cut and sawtooth trailing edge. Edges are grouped by direction, and each group's spike azimuths are predicted and marked.
 - **STEP model.** The file is tessellated in the browser with OpenCascade (occt-import-js). Every lit facet is integrated exactly and summed coherently across all azimuths, in parallel Web Workers.
 - **Hot-spot view.** A 3D render coloured by backscattered power per unit area, averaged over the nose, beam or tail sectors or taken at a single angle, plus a ranking of parts by their own RCS.
 - **Comparison.** Freeze any result as a reference and compare sector averages against it.
+
+## Screenshots
+
+**Edge alignment.** An unaligned swept wing (orange) compared against the aligned sawtooth wing frozen as a reference (grey dashes). Every edge direction adds a pair of spikes. The coloured ticks on the rim mark where each edge group is predicted to flash.
+
+![Unaligned wing compared with the aligned sawtooth reference](docs/img/compare.png)
+
+**STEP model, nose-sector hot spots.** Facets coloured by backscattered power per unit area, averaged over the nose ±30° sector.
+
+![3D hot-spot view of a STEP assembly](docs/img/step-hotspots.png)
+
+**Single radar angle.** The orange arrow is the radar look direction. The parts table ranks each body by the RCS it would have on its own.
+
+![Hot spots at one radar azimuth with the part ranking](docs/img/step-angle.png)
+
+The STEP model in these screenshots is a test assembly from the OpenCascade CAx-IF set, not an aircraft.
 
 ## Method in one paragraph
 
@@ -38,7 +58,7 @@ Physical optics only. There is no edge diffraction, travelling-wave return, mult
 - `three.min.js`, `OrbitControls.js`: three.js r147 (MIT)
 - `occt-import-js.js`, `occt-wasm.js`: occt-import-js 0.0.23 with its WebAssembly inlined as base64 (LGPL-2.1, see `third_party_licenses/`)
 
-To run locally, serve the folder over HTTP (for example `python3 -m http.server`) and open `index.html`.
+To run locally, serve the folder over HTTP (for example `python3 -m http.server`) and open `index.html`. Fonts are bundled in `fonts/` (IBM Plex, SIL Open Font License), so the page needs no network access.
 
 ## References
 
